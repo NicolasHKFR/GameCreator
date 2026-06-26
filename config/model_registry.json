@@ -1,0 +1,23 @@
+{
+  "sd15": {
+    "path": "model_cache/sd15",
+    "hf_model_id": "runwayml/stable-diffusion-v1-5",
+    "type": "generation",
+    "vram_gb": 4.5,
+    "active": true
+  },
+  "rembg_isnet": {
+    "path": "model_cache/rembg_isnet",
+    "hf_model_id": "briaai/RMBG-1.4",
+    "type": "background_removal",
+    "vram_gb": 0.5,
+    "active": true
+  },
+  "clip_vit_large": {
+    "path": "model_cache/clip",
+    "hf_model_id": "openai/clip-vit-large-patch14",
+    "type": "classification",
+    "vram_gb": 0.8,
+    "active": true
+  }
+}

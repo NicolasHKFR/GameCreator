@@ -1,0 +1,14 @@
+{
+  "projects_directory": "projects",
+  "model_cache_directory": "model_cache",
+  "log_directory": "logs",
+  "log_level": "INFO",
+  "vram_budget_gb": 8.0,
+  "vram_warning_threshold_gb": 7.5,
+  "default_output_resolution": 512,
+  "animation_fps": 8,
+  "gen_steps_default": 25,
+  "gen_cfg_default": 7.5,
+  "enable_animation": false,
+  "theme": "dark"
+}

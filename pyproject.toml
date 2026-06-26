@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-game-asset-factory"
+version = "1.0.0"
+description = "Local AI-powered 2D game asset generation pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.6",
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "diffusers>=0.24",
+    "transformers>=4.36",
+    "accelerate>=0.25",
+    "safetensors>=0.4",
+    "opencv-python>=4.8",
+    "numpy>=1.24",
+    "Pillow>=10.1",
+    "scikit-image>=0.22",
+    "rembg>=0.1",
+    "sqlalchemy>=2.0",
+    "pynvml>=11.5",
+    "nvidia-ml-py3>=7.352",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
