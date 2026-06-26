@@ -1,9 +1,9 @@
-import json
 import logging
 import os
 import shutil
-from datetime import datetime
 
+from app.exporters.png_exporter import export_png
+from app.exporters.manifest_exporter import generate_manifest
 from app.storage.asset_repo import AssetRepo, AnimationRepo
 from app.utils.errors import ExportError
 
@@ -36,16 +36,6 @@ class ExportService:
         animations = self.animation_repo.get_by_project(project.project_id)
         logger.info("Export data — %d asset(s), %d animation(s)", len(assets), len(animations))
 
-        manifest = {
-            'project_name': project.name,
-            'project_id': project.project_id,
-            'exported_at': datetime.utcnow().isoformat(),
-            'asset_count': len(assets),
-            'animation_count': len(animations),
-            'assets': [],
-            'animations': [],
-        }
-
         for folder, asset_filter in structure.items():
             folder_path = os.path.join(destination, folder)
             os.makedirs(folder_path, exist_ok=True)
@@ -56,13 +46,6 @@ class ExportService:
                     if os.path.exists(anim.file_path):
                         shutil.copytree(anim.file_path, anim_dir, dirs_exist_ok=True)
                         logger.info("Copied animation directory: %s -> %s", anim.file_path, anim_dir)
-                    manifest['animations'].append({
-                        'animation_id': anim.animation_id,
-                        'asset_id': anim.asset_id,
-                        'type': anim.animation_type,
-                        'fps': anim.fps,
-                        'frames': anim.frame_count,
-                    })
                 continue
 
             if folder == 'Metadata':
@@ -71,27 +54,15 @@ class ExportService:
                         meta_dest = os.path.join(folder_path, f'{asset.name}.json')
                         shutil.copy2(asset.metadata_path, meta_dest)
                         logger.info("Copied metadata: %s -> %s", asset.metadata_path, meta_dest)
-                        manifest['assets'].append({
-                            'asset_id': asset.asset_id,
-                            'name': asset.name,
-                            'type': asset.asset_type,
-                            'file': f'{folder}/{asset.name}.png',
-                            'metadata': f'Metadata/{asset.name}.json',
-                        })
                 continue
 
             for asset in assets:
                 if asset_filter and asset.asset_type != asset_filter:
                     continue
                 if os.path.exists(asset.file_path):
-                    dest = os.path.join(folder_path, os.path.basename(asset.file_path))
-                    shutil.copy2(asset.file_path, dest)
-                    logger.info("Copied asset: %s -> %s", asset.file_path, dest)
+                    export_png(asset.file_path, folder_path)
 
-        manifest_path = os.path.join(destination, 'manifest.json')
-        with open(manifest_path, 'w', encoding='utf-8') as f:
-            json.dump(manifest, f, indent=2)
-        logger.info("Wrote manifest to %s", manifest_path)
+        generate_manifest(project.name, project.project_id, assets, animations, destination)
 
         logger.info("Project export complete — destination=%s", destination)
         return destination

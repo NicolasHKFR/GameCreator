@@ -4,7 +4,48 @@
     "hf_model_id": "runwayml/stable-diffusion-v1-5",
     "type": "generation",
     "vram_gb": 4.5,
-    "active": true
+    "active": true,
+    "label": "SD 1.5 (HF)"
+  },
+  "dreamshaper": {
+    "path": "D:\\allai\\SDModels\\DreamShaper",
+    "hf_model_id": "Lykon/DreamShaper",
+    "type": "generation",
+    "vram_gb": 4.5,
+    "active": true,
+    "label": "DreamShaper"
+  },
+  "epicrealism": {
+    "path": "D:\\allai\\SDModels\\EpicRealism",
+    "hf_model_id": "emilianJR/epicrealism_naturalSin",
+    "type": "generation",
+    "vram_gb": 4.5,
+    "active": true,
+    "label": "EpicRealism"
+  },
+  "realcartoon3d": {
+    "path": "D:\\allai\\SDModels\\RealCartoon3D",
+    "hf_model_id": "Ojimi/anime-session-v2",
+    "type": "generation",
+    "vram_gb": 4.5,
+    "active": true,
+    "label": "RealCartoon3D"
+  },
+  "revanimated": {
+    "path": "D:\\allai\\SDModels\\RevAnimated",
+    "hf_model_id": "sgsai/RevAnimated-v1-2",
+    "type": "generation",
+    "vram_gb": 4.5,
+    "active": true,
+    "label": "RevAnimated"
+  },
+  "juggernaut": {
+    "path": "D:\\allai\\SDModels\\Juggernaut",
+    "hf_model_id": "RunDiffusion/Juggernaut-XL-v9",
+    "type": "generation",
+    "vram_gb": 4.5,
+    "active": true,
+    "label": "Juggernaut"
   },
   "rembg_isnet": {
     "path": "model_cache/rembg_isnet",

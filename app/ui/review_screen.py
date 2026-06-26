@@ -13,7 +13,7 @@ from app.storage.asset_repo import AssetRepo
 from app.services.background_service import BackgroundRemovalService
 from app.services.extraction_service import SpriteExtractionService
 from app.services.texture_service import TextureService
-from app.models.model_manager import ModelManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,9 @@ class ReviewScreen(QWidget):
         self.main_window = main_window
         self.project = project
         app = main_window.app_instance
-        self.session = app.get_db().get_session()
+        self.session = app.track_session(app.get_db().get_session())
         self.asset_repo = AssetRepo(self.session)
-        self.model_manager = ModelManager()
+        self.model_manager = app.model_manager
         self.bg_service = BackgroundRemovalService(self.model_manager)
         self.extraction = SpriteExtractionService()
         self.texture = TextureService()
@@ -83,6 +83,8 @@ class ReviewScreen(QWidget):
         delete_btn.clicked.connect(self.delete_asset)
         back_btn = QPushButton("Back to Generation")
         back_btn.clicked.connect(lambda: self.main_window.navigate_to('generation'))
+        dashboard_btn = QPushButton("Dashboard")
+        dashboard_btn.clicked.connect(lambda: self.main_window.navigate_to('dashboard'))
 
         btn_layout.addWidget(remove_bg_btn)
         btn_layout.addWidget(extract_btn)
@@ -90,6 +92,7 @@ class ReviewScreen(QWidget):
         btn_layout.addWidget(rename_btn)
         btn_layout.addWidget(delete_btn)
         btn_layout.addWidget(back_btn)
+        btn_layout.addWidget(dashboard_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
@@ -203,8 +206,10 @@ class ReviewScreen(QWidget):
                                      QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             logger.info("Deleting asset: id=%s, name='%s', path='%s'", asset.asset_id, asset.name, asset.file_path)
-            if os.path.exists(asset.file_path):
-                os.remove(asset.file_path)
+            for del_path in [asset.file_path, asset.thumbnail_path, asset.metadata_path]:
+                if del_path and os.path.exists(del_path):
+                    os.remove(del_path)
+                    logger.debug("Removed file: %s", del_path)
             self.asset_repo.delete(asset.asset_id)
             self.session.commit()
             self.refresh_assets()

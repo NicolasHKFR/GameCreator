@@ -4,6 +4,7 @@ import uuid
 
 from PIL import Image
 
+from app.exporters.gif_exporter import export_gif
 from app.utils.config import get_app_config
 from app.utils.errors import AnimationError
 
@@ -21,29 +22,76 @@ class AnimationService:
             "Generating animation frames — source=%s, type=%s, frames=%d, fps=%d",
             source_image_path, animation_type, frame_count, fps,
         )
+        import numpy as np
         source = Image.open(source_image_path).convert('RGBA')
+        w, h = source.size
         frames = []
 
         for i in range(frame_count):
-            progress = i / max(frame_count - 1, 1)
-            frame = source.copy()
+            t = i / max(frame_count - 1, 1)
+            angle = t * 2 * np.pi
 
-            if animation_type in ('idle',):
-                offset_y = int(2 * np.sin(progress * 2 * np.pi))
-                import numpy as np
-                frame = source.copy()
+            if animation_type == 'idle':
+                offset_y = int(2 * np.sin(angle))
                 canvas = Image.new('RGBA', source.size, (0, 0, 0, 0))
-                canvas.paste(frame, (0, offset_y))
-                frame = canvas
+                canvas.paste(source, (0, offset_y))
+                frames.append(canvas)
+
             elif animation_type == 'walk':
-                import numpy as np
-                leg_angle = np.sin(progress * 2 * np.pi) * 5
-                offset_x = int(4 * np.sin(progress * 2 * np.pi))
+                offset_x = int(4 * np.sin(angle))
+                body_sway = int(1 * np.sin(angle * 2))
                 canvas = Image.new('RGBA', source.size, (0, 0, 0, 0))
-                canvas.paste(source, (offset_x, 0))
-                frame = canvas
+                canvas.paste(source, (offset_x, body_sway))
+                frames.append(canvas)
 
-            frames.append(frame)
+            elif animation_type == 'run':
+                offset_x = int(8 * np.sin(angle))
+                stretch = 1.0 + 0.05 * np.sin(angle)
+                new_w = max(int(w * stretch), 1)
+                new_h = max(int(h * stretch), 1)
+                resized = source.resize((new_w, new_h), Image.LANCZOS)
+                canvas = Image.new('RGBA', source.size, (0, 0, 0, 0))
+                canvas.paste(resized, (offset_x, 0))
+                frames.append(canvas)
+
+            elif animation_type == 'attack':
+                swing_x = int(16 * np.sin(angle))
+                tilt = int(8 * (1 - abs(np.cos(angle))) * np.sign(np.sin(angle)))
+                canvas = Image.new('RGBA', source.size, (0, 0, 0, 0))
+                canvas.paste(source, (swing_x, tilt))
+                frames.append(canvas)
+
+            elif animation_type == 'jump':
+                height = int(20 * np.abs(np.sin(angle)))
+                squash = 1.0 + 0.15 * (1 - np.abs(np.sin(angle)))
+                new_h = max(int(h / squash), 1)
+                resized = source.resize((w, new_h), Image.LANCZOS)
+                canvas = Image.new('RGBA', source.size, (0, 0, 0, 0))
+                canvas.paste(resized, (0, h - new_h - height))
+                frames.append(canvas)
+
+            elif animation_type == 'hurt':
+                shake_x = int(6 * np.sin(angle * 4))
+                shake_y = int(3 * np.cos(angle * 4))
+                alpha = max(0, 1.0 - 0.3 * np.abs(np.sin(angle)))
+                tinted = source.copy()
+                tinted.putalpha(int(alpha * 255))
+                canvas = Image.new('RGBA', source.size, (0, 0, 0, 0))
+                canvas.paste(tinted, (shake_x, shake_y))
+                frames.append(canvas)
+
+            elif animation_type == 'death':
+                fade = 1.0 - t * 0.8
+                sink = int(16 * t)
+                alpha = max(0, int(fade * 255))
+                faded = source.copy()
+                faded.putalpha(alpha)
+                canvas = Image.new('RGBA', source.size, (0, 0, 0, 0))
+                canvas.paste(faded, (0, sink))
+                frames.append(canvas)
+
+            else:
+                frames.append(source.copy())
 
         logger.info("Generated %d frame(s) for animation type '%s'", len(frames), animation_type)
         return frames
@@ -72,7 +120,6 @@ class AnimationService:
             "Generating animation — source=%s, output_dir=%s, type=%s, frames=%d, fps=%d",
             source_image_path, output_dir, animation_type, frame_count, fps,
         )
-        import numpy as np
         os.makedirs(output_dir, exist_ok=True)
 
         try:
@@ -97,12 +144,8 @@ class AnimationService:
 
         logger.info("Saved %d frame(s) to %s", len(frame_paths), frame_dir)
 
-        gif_path = os.path.join(output_dir, f'{animation_type}_{anim_id}.gif')
-        frames[0].save(
-            gif_path, save_all=True, append_images=frames[1:],
-            duration=1000 // fps, loop=0, disposal=2,
-        )
-        logger.info("Saved animation GIF to %s", gif_path)
+        gif_name = f'{animation_type}_{anim_id}'
+        gif_path = export_gif(frames, output_dir, gif_name, fps=fps)
 
         result = {
             'animation_id': anim_id,

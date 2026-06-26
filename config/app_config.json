@@ -10,5 +10,6 @@
   "gen_steps_default": 25,
   "gen_cfg_default": 7.5,
   "enable_animation": false,
-  "theme": "dark"
+  "theme": "dark",
+  "sd_models_directory": "D:\\allai\\SDModels"
 }

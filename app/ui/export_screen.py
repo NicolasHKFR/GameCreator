@@ -1,9 +1,11 @@
 import logging
 import os
+import shutil
+import zipfile
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QLineEdit, QFileDialog, QMessageBox, QProgressBar
+    QLineEdit, QComboBox, QFileDialog, QMessageBox, QProgressBar
 )
 
 from app.services.export_service import ExportService
@@ -18,7 +20,7 @@ class ExportScreen(QWidget):
         self.main_window = main_window
         self.project = project
         app = main_window.app_instance
-        self.session = app.get_db().get_session()
+        self.session = app.track_session(app.get_db().get_session())
         self.export_service = ExportService(self.session)
         self.asset_repo = AssetRepo(self.session)
 
@@ -46,6 +48,14 @@ class ExportScreen(QWidget):
         dest_layout.addWidget(browse_btn)
         layout.addLayout(dest_layout)
 
+        fmt_layout = QHBoxLayout()
+        fmt_layout.addWidget(QLabel("Format:"))
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(['Folder', 'ZIP Archive'])
+        fmt_layout.addWidget(self.format_combo)
+        fmt_layout.addStretch()
+        layout.addLayout(fmt_layout)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
@@ -61,9 +71,12 @@ class ExportScreen(QWidget):
         export_btn.clicked.connect(self.export_project)
         back_btn = QPushButton("Back")
         back_btn.clicked.connect(lambda: self.main_window.navigate_to('review'))
+        dashboard_btn = QPushButton("Dashboard")
+        dashboard_btn.clicked.connect(lambda: self.main_window.navigate_to('dashboard'))
 
         btn_layout.addWidget(export_btn)
         btn_layout.addWidget(back_btn)
+        btn_layout.addWidget(dashboard_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 
@@ -75,16 +88,30 @@ class ExportScreen(QWidget):
             return
 
         asset_count = len(self.asset_repo.get_by_project(self.project.project_id))
+        export_format = self.format_combo.currentText()
         logger.info(
-            "Export requested: project='%s', destination='%s', asset_count=%d",
-            self.project.name, destination, asset_count
+            "Export requested: project='%s', destination='%s', asset_count=%d, format='%s'",
+            self.project.name, destination, asset_count, export_format
         )
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
 
         try:
-            export_path = self.export_service.export_project(self.project, destination)
+            if export_format == 'ZIP Archive':
+                temp_dir = destination + '_tmp'
+                export_path = self.export_service.export_project(self.project, temp_dir)
+                zip_path = os.path.join(destination, f'{self.project.name}_export.zip')
+                os.makedirs(os.path.dirname(zip_path), exist_ok=True)
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    for root, _, files in os.walk(temp_dir):
+                        for fn in files:
+                            fp = os.path.join(root, fn)
+                            zf.write(fp, os.path.relpath(fp, temp_dir))
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                export_path = zip_path
+            else:
+                export_path = self.export_service.export_project(self.project, destination)
             self.progress_bar.setValue(100)
             logger.info(
                 "Export completed: project='%s', destination='%s', export_path='%s'",

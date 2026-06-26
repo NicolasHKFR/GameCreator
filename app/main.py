@@ -1,7 +1,20 @@
 import sys
 import os
+import logging
+import warnings
+
+warnings.filterwarnings("ignore", message="Failed to load image Python extension")
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('PIL').setLevel(logging.WARNING)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+_cublas_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.venv', 'Lib', 'site-packages', 'nvidia', 'cu13', 'bin', 'x86_64')
+_cublas_path = os.path.normpath(_cublas_path)
+if os.path.isdir(_cublas_path):
+    os.environ['PATH'] = _cublas_path + os.pathsep + os.environ.get('PATH', '')
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
@@ -9,6 +22,7 @@ from PySide6.QtCore import Qt
 from app.utils.config import get_app_config, resolve_path
 from app.utils.logger import setup_logger
 from app.storage.database import Database
+from app.workflows.job_queue import JobQueue
 
 logger = None
 
@@ -26,10 +40,34 @@ class Application:
         os.makedirs(resolve_path(self.config.get('model_cache_directory', 'model_cache')), exist_ok=True)
 
         self.db = Database()
-        logger.info("Database initialized")
+        self.job_queue = JobQueue(max_concurrent=1)
+        self._model_manager = None
+        self._sessions = []
+        logger.info("Database initialized, JobQueue ready")
 
     def get_db(self):
         return self.db
+
+    @property
+    def model_manager(self):
+        if self._model_manager is None:
+            from app.models.model_manager import ModelManager
+            self._model_manager = ModelManager()
+            logger.info("Singleton ModelManager created")
+        return self._model_manager
+
+    def track_session(self, session):
+        self._sessions.append(session)
+        return session
+
+    def close_all_sessions(self):
+        for s in self._sessions:
+            try:
+                s.close()
+            except Exception:
+                pass
+        self._sessions.clear()
+        logger.info("All tracked sessions closed")
 
 
 def main():
@@ -38,23 +76,10 @@ def main():
     app.setOrganizationName("GameCreator")
 
     if get_app_config().get('theme', 'dark') == 'dark':
-        app.setStyleSheet("""
-            QMainWindow, QWidget { background-color: #1e1e1e; color: #e0e0e0; }
-            QPushButton { background-color: #3a3a3a; color: #e0e0e0; border: 1px solid #555; padding: 6px 16px; border-radius: 4px; }
-            QPushButton:hover { background-color: #4a4a4a; }
-            QPushButton:pressed { background-color: #2a2a2a; }
-            QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-                background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #555; padding: 4px; border-radius: 3px;
-            }
-            QListWidget, QTableWidget { background-color: #2a2a2a; color: #e0e0e0; border: 1px solid #555; }
-            QLabel { color: #e0e0e0; }
-            QGroupBox { border: 1px solid #555; border-radius: 4px; margin-top: 8px; padding-top: 16px; }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
-            QProgressBar { background-color: #2a2a2a; border: 1px solid #555; border-radius: 3px; text-align: center; color: #e0e0e0; }
-            QProgressBar::chunk { background-color: #4a9eff; border-radius: 2px; }
-            QScrollBar:vertical { background-color: #2a2a2a; width: 10px; }
-            QScrollBar::handle:vertical { background-color: #555; border-radius: 5px; min-height: 20px; }
-        """)
+        qss_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', 'dark_theme.qss')
+        if os.path.exists(qss_path):
+            with open(qss_path, 'r', encoding='utf-8') as f:
+                app.setStyleSheet(f.read())
 
     app_instance = Application()
     logger.info("Application initialized successfully")
@@ -63,7 +88,12 @@ def main():
     window = MainWindow(app_instance)
     window.show()
 
-    sys.exit(app.exec())
+    exit_code = app.exec()
+    app_instance.close_all_sessions()
+    if app_instance._model_manager:
+        app_instance._model_manager.cleanup()
+    logger.info("Application shut down")
+    sys.exit(exit_code)
 
 
 if __name__ == '__main__':

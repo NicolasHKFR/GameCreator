@@ -1,4 +1,5 @@
 import gc
+import os
 import logging
 import threading
 
@@ -29,8 +30,21 @@ class ModelManager:
         self._lock = threading.Lock()
         self._vram_budget = self.config.get('vram_budget_gb', 8.0)
         self._vram_warning = self.config.get('vram_warning_threshold_gb', 7.5)
+        self._watchdog_stop = threading.Event()
+        self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True, name='vram-watchdog')
+        self._watchdog_thread.start()
         logger.info("ModelManager initialized with VRAM budget=%s GB, warning threshold=%s GB",
                      self._vram_budget, self._vram_warning)
+
+    def _watchdog_loop(self):
+        while not self._watchdog_stop.wait(2.0):
+            try:
+                used = self.get_used_vram_gb()
+                if used > self._vram_warning:
+                    logger.warning("VRAM watchdog: %.1f GB exceeds threshold %s GB — unloading", used, self._vram_warning)
+                    self.unload_all()
+            except Exception:
+                logger.exception("VRAM watchdog error")
 
     @property
     def current_model_type(self):
@@ -112,13 +126,24 @@ class ModelManager:
 
             model_type = entry['type']
             hf_id = entry['hf_model_id']
-            logger.info("Loading %s model '%s' from %s", model_type, model_key, hf_id)
+            model_path = entry.get('path', '')
+
+            if model_type == 'generation':
+                if model_path and os.path.isdir(model_path):
+                    source = model_path
+                    logger.info("Loading generation model '%s' from local path: %s", model_key, source)
+                else:
+                    source = hf_id
+                    logger.info("Loading generation model '%s' from HuggingFace: %s", model_key, source)
+            else:
+                source = hf_id
+                logger.info("Loading %s model '%s' from %s", model_type, model_key, source)
 
             try:
                 if model_type == 'generation':
                     from diffusers import StableDiffusionPipeline
                     self._loaded_model = StableDiffusionPipeline.from_pretrained(
-                        hf_id, torch_dtype=torch.float16, safety_checker=None
+                        source, torch_dtype=torch.float16, safety_checker=None
                     ).to('cuda')
                 elif model_type == 'background_removal':
                     from rembg import new_session

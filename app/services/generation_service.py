@@ -3,6 +3,7 @@ import os
 import uuid
 from datetime import datetime
 
+import torch
 from PIL import Image
 
 from app.utils.config import get_app_config
@@ -25,13 +26,13 @@ class GenerationService:
         self.config = get_app_config()
         logger.info("GenerationService initialized")
 
-    def generate_asset(self, project, prompt, asset_type, style_profile=None, quantity=1):
+    def generate_asset(self, project, prompt, asset_type, style_profile=None, quantity=1, progress_callback=None, model_key='sd15'):
         logger.info(
-            "Generating asset(s) — project=%s, prompt=%r, asset_type=%s, style_profile=%s, quantity=%d",
-            project.project_id, prompt, asset_type, style_profile.name if style_profile else None, quantity,
+            "Generating asset(s) — project=%s, prompt=%r, asset_type=%s, style_profile=%s, quantity=%d, model=%s",
+            project.project_id, prompt, asset_type, style_profile.name if style_profile else None, quantity, model_key,
         )
 
-        model = self.model_manager.load_model('sd15')
+        model = self.model_manager.load_model(model_key)
         if model is None:
             logger.error("SD model failed to load")
             raise AssetGenerationError("SD model not loaded")
@@ -48,14 +49,22 @@ class GenerationService:
             composed, negative, resolution, steps, cfg,
         )
 
+        seed_strategy = getattr(style_profile, 'seed_strategy', 'random') if style_profile else 'random'
+        fixed_seed = 42 if seed_strategy == 'fixed' else None
+
         assets = []
         for i in range(quantity):
+            if progress_callback:
+                pct = (i / max(quantity, 1)) * 100
+                progress_callback.set_progress(pct, f'Generating asset {i+1}/{quantity}')
             name = f'{asset_type}_{uuid.uuid4().hex[:8]}'
             asset_dir = os.path.join(project.output_directory, project.project_id, 'assets')
             os.makedirs(asset_dir, exist_ok=True)
 
             try:
-                logger.info("Running inference for asset %d/%d: %s", i + 1, quantity, name)
+                seed = fixed_seed + i if fixed_seed is not None else torch.randint(0, 2**31, (1,)).item()
+                generator = torch.Generator(device='cuda').manual_seed(seed) if seed is not None else None
+                logger.info("Running inference for asset %d/%d: %s (seed=%s)", i + 1, quantity, name, seed)
                 result = model(
                     prompt=composed,
                     negative_prompt=negative,
@@ -63,6 +72,7 @@ class GenerationService:
                     height=resolution,
                     num_inference_steps=steps,
                     guidance_scale=cfg,
+                    generator=generator,
                 )
                 image = result.images[0]
                 logger.info("Inference complete — image size: %s", image.size)

@@ -5,6 +5,12 @@ from datetime import datetime
 from app.utils.config import get_app_config, resolve_path
 
 
+class ImmediateFileHandler(logging.FileHandler):
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+
 def setup_logger():
     config = get_app_config()
     log_dir = resolve_path(config.get('log_directory', 'logs'))
@@ -18,7 +24,7 @@ def setup_logger():
     root.setLevel(level)
 
     if not root.handlers:
-        fh = logging.FileHandler(log_file, encoding='utf-8')
+        fh = ImmediateFileHandler(log_file, encoding='utf-8')
         fh.setLevel(level)
         ch = logging.StreamHandler()
         ch.setLevel(level)

@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
 from app.ui.dashboard_screen import DashboardScreen
+from app.ui.blocking_overlay import BlockingOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
             ("dashboard", "Dashboard"),
             ("generation", "Generate Assets"),
             ("review", "Review Assets"),
+            ("style_editor", "Style Editor"),
             ("animation", "Animations"),
             ("export", "Export"),
         ]
@@ -64,12 +66,37 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         layout.addWidget(self.stack, 1)
 
+        self.overlay = BlockingOverlay(self)
+
         self.screens = {}
         self.register_screen("dashboard", DashboardScreen(self))
+        self.set_project_nav_enabled(False)
 
         self.navigate_to("dashboard")
 
+    def set_project_nav_enabled(self, enabled):
+        for key in ('generation', 'review', 'style_editor', 'animation', 'export'):
+            btn = self.nav_buttons.get(key)
+            if btn:
+                btn.setEnabled(enabled)
+                btn.setStyleSheet("""
+                    QPushButton { background-color: transparent; color: """ + ("#ccc" if enabled else "#555") + """; border: none; padding: 8px 12px; text-align: left; font-size: 13px; }
+                    QPushButton:hover { background-color: """ + ("#333" if enabled else "transparent") + """; color: """ + ("#fff" if enabled else "#555") + """; }
+                """)
+
+    def show_blocking_overlay(self, message="Working..."):
+        self.overlay.show_overlay(message)
+
+    def hide_blocking_overlay(self):
+        self.overlay.hide_overlay()
+
     def register_screen(self, name, widget):
+        existing = self.screens.get(name)
+        if existing is not None:
+            idx = self.stack.indexOf(existing)
+            if idx >= 0:
+                self.stack.removeWidget(existing)
+            existing.deleteLater()
         self.screens[name] = widget
         self.stack.addWidget(widget)
         logger.info("Registered screen: %s (%s)", name, widget.__class__.__name__)

@@ -21,7 +21,7 @@ class StyleService:
             palette_description=palette_description, cfg_scale=cfg_scale,
             steps=steps, sampler=sampler, seed_strategy=seed_strategy,
         )
-        logger.info("Style profile created — id=%s, name=%s", profile.id, name)
+        logger.info("Style profile created — id=%s, name=%s", profile.style_profile_id, name)
         return profile
 
     def update_style_profile(self, profile_id, **kwargs):
@@ -37,7 +37,7 @@ class StyleService:
         logger.info("Getting style profile — id=%s", profile_id)
         profile = self.repo.get(profile_id)
         if profile:
-            logger.info("Style profile found — id=%s, name=%s", profile.id, profile.name)
+            logger.info("Style profile found — id=%s, name=%s", profile.style_profile_id, profile.name)
         else:
             logger.warning("Style profile not found — id=%s", profile_id)
         return profile

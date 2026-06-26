@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime
 
-from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, ForeignKey, Text
+from sqlalchemy import create_engine, Column, String, Integer, Boolean, DateTime, Float, ForeignKey, Text, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.utils.config import resolve_path
@@ -19,7 +19,7 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    style_profile_id = Column(String(64), ForeignKey('style_profiles.style_profile_id'), nullable=True)
+    style_profile_id = Column(String(64), ForeignKey('style_profiles.style_profile_id', ondelete='SET NULL'), nullable=True)
     output_directory = Column(String(1024), nullable=False)
 
 
@@ -42,7 +42,7 @@ class Asset(Base):
     __tablename__ = 'assets'
 
     asset_id = Column(String(64), primary_key=True)
-    project_id = Column(String(64), ForeignKey('projects.project_id'), nullable=False)
+    project_id = Column(String(64), ForeignKey('projects.project_id', ondelete='CASCADE'), nullable=False)
     name = Column(String(255), nullable=False)
     asset_type = Column(String(64), nullable=False)
     file_path = Column(String(1024), nullable=False)
@@ -56,8 +56,8 @@ class Animation(Base):
     __tablename__ = 'animations'
 
     animation_id = Column(String(64), primary_key=True)
-    project_id = Column(String(64), ForeignKey('projects.project_id'), nullable=False)
-    asset_id = Column(String(64), ForeignKey('assets.asset_id'), nullable=False)
+    project_id = Column(String(64), ForeignKey('projects.project_id', ondelete='CASCADE'), nullable=False)
+    asset_id = Column(String(64), ForeignKey('assets.asset_id', ondelete='CASCADE'), nullable=False)
     animation_type = Column(String(64), nullable=False)
     fps = Column(Integer, default=8)
     frame_count = Column(Integer, default=16)
@@ -70,7 +70,10 @@ class Database:
         if db_path is None:
             db_path = os.path.join(resolve_path(''), 'database.db')
         logger.info("Creating database engine for path: %s", db_path)
-        self.engine = create_engine(f'sqlite:///{db_path}', echo=False)
+        self.engine = create_engine(f'sqlite:///{db_path}', echo=False, connect_args={'check_same_thread': False})
+        with self.engine.connect() as conn:
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+            conn.commit()
         self.Session = sessionmaker(bind=self.engine)
         try:
             Base.metadata.create_all(self.engine)

@@ -10,7 +10,8 @@ from PySide6.QtCore import Qt
 
 from app.services.generation_service import GenerationService
 from app.services.style_service import StyleService
-from app.models.model_manager import ModelManager
+from app.workflows.progress_tracker import ProgressTracker
+from app.workflows.workflow_engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,13 @@ class GenerationScreen(QWidget):
         self.main_window = main_window
         self.project = project
         app = main_window.app_instance
-        self.session = app.get_db().get_session()
-        self.model_manager = ModelManager()
+        self.session = app.track_session(app.get_db().get_session())
+        self.model_manager = app.model_manager
         self.gen_service = GenerationService(self.session, self.model_manager)
         self.style_service = StyleService(self.session)
+        self.progress_tracker = ProgressTracker()
+        self.progress_tracker.progress_updated.connect(self._on_progress)
+        self.progress_tracker.step_changed.connect(self._on_step_changed)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -42,6 +46,15 @@ class GenerationScreen(QWidget):
         self.category.addItems(['character', 'prop', 'weapon', 'building', 'environment', 'background', 'tileset', 'effect'])
         left_form.addRow("Asset Category:", self.category)
 
+        self.model_combo = QComboBox()
+        self.model_combo.addItem('SD 1.5 (HF)', 'sd15')
+        self.model_combo.addItem('DreamShaper', 'dreamshaper')
+        self.model_combo.addItem('EpicRealism', 'epicrealism')
+        self.model_combo.addItem('RealCartoon3D', 'realcartoon3d')
+        self.model_combo.addItem('RevAnimated', 'revanimated')
+        self.model_combo.addItem('Juggernaut', 'juggernaut')
+        left_form.addRow("SD Model:", self.model_combo)
+
         self.prompt_input = QTextEdit()
         self.prompt_input.setPlaceholderText("Describe the asset...")
         self.prompt_input.setMaximumHeight(100)
@@ -54,6 +67,8 @@ class GenerationScreen(QWidget):
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
         left_form.addRow(self.progress_bar)
 
         self.status_label = QLabel("")
@@ -87,19 +102,96 @@ class GenerationScreen(QWidget):
         gen_btn.clicked.connect(self.generate)
         self.gen_btn = gen_btn
 
+        pipeline_btn = QPushButton("Run Pipeline")
+        pipeline_btn.setStyleSheet("""
+            QPushButton { background-color: #2e7d32; color: #fff; border: none; padding: 10px 30px; border-radius: 4px; font-size: 14px; font-weight: bold; }
+            QPushButton:hover { background-color: #388e3c; }
+            QPushButton:disabled { background-color: #555; }
+        """)
+        pipeline_btn.clicked.connect(self.run_pipeline)
+        self.pipeline_btn = pipeline_btn
+
         style_btn = QPushButton("Edit Style Profile")
         style_btn.clicked.connect(self.edit_style)
         review_btn = QPushButton("Review Assets")
         review_btn.clicked.connect(self.go_review)
         export_btn = QPushButton("Export")
         export_btn.clicked.connect(self.go_export)
+        dashboard_btn = QPushButton("Dashboard")
+        dashboard_btn.clicked.connect(lambda: self.main_window.navigate_to('dashboard'))
 
         btn_layout.addWidget(gen_btn)
+        btn_layout.addWidget(pipeline_btn)
         btn_layout.addWidget(style_btn)
         btn_layout.addWidget(review_btn)
         btn_layout.addWidget(export_btn)
+        btn_layout.addWidget(dashboard_btn)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
+
+    def _on_progress(self, value, message):
+        self.progress_bar.setValue(int(value))
+        if message:
+            self.status_label.setText(message)
+
+    def _on_step_changed(self, step_name):
+        self.status_label.setText(step_name)
+
+    def _selected_model_key(self):
+        return self.model_combo.currentData()
+
+    def run_pipeline(self):
+        prompt = self.prompt_input.toPlainText().strip()
+        if not prompt:
+            logger.warning("Pipeline aborted: prompt is empty")
+            QMessageBox.warning(self, "Error", "Please enter a prompt.")
+            return
+
+        asset_type = self.category.currentText()
+        quantity = self.quantity.value()
+        profile = self.get_selected_profile()
+        profile_name = profile.name if profile else "None"
+        model_key = self._selected_model_key()
+
+        logger.info(
+            "Pipeline requested: prompt='%s', type='%s', quantity=%d, style_profile='%s', model='%s', project='%s'",
+            prompt, asset_type, quantity, profile_name, model_key, self.project.name
+        )
+
+        self.gen_btn.setEnabled(False)
+        self.pipeline_btn.setEnabled(False)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Starting pipeline...")
+        self.main_window.show_blocking_overlay("Pipeline running...")
+
+        engine = WorkflowEngine(self.session, self.model_manager)
+        try:
+            engine.run_pipeline(
+                project=self.project,
+                prompt=prompt,
+                asset_type=asset_type,
+                style_profile=profile,
+                quantity=quantity,
+                model_key=model_key,
+                enable_animation=None,
+                progress_callback=self.progress_tracker,
+            )
+            self.session.commit()
+            self.progress_bar.setValue(100)
+            self.status_label.setText("Pipeline complete!")
+            logger.info("Pipeline completed for project='%s'", self.project.name)
+            from app.ui.review_screen import ReviewScreen
+            self.main_window.register_screen("review", ReviewScreen(self.main_window, self.project))
+            self.main_window.navigate_to("review")
+        except Exception as e:
+            self.status_label.setText(f"Pipeline failed: {e}")
+            logger.exception("Pipeline failed for project='%s': %s", self.project.name, e)
+            QMessageBox.critical(self, "Pipeline Failed", str(e))
+        finally:
+            self.main_window.hide_blocking_overlay()
+            self.gen_btn.setEnabled(True)
+            self.pipeline_btn.setEnabled(True)
 
     def refresh_styles(self):
         self.style_list.clear()
@@ -126,34 +218,33 @@ class GenerationScreen(QWidget):
         quantity = self.quantity.value()
         profile = self.get_selected_profile()
         profile_name = profile.name if profile else "None"
+        model_key = self._selected_model_key()
 
         logger.info(
-            "Generation requested: prompt='%s', type='%s', quantity=%d, style_profile='%s', project='%s'",
-            prompt, asset_type, quantity, profile_name, self.project.name
+            "Generation requested: prompt='%s', type='%s', quantity=%d, style_profile='%s', model='%s', project='%s'",
+            prompt, asset_type, quantity, profile_name, model_key, self.project.name
         )
 
         self.gen_btn.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.status_label.setText("Generating...")
+        self.progress_tracker.set_step('generation')
+        self.progress_tracker.set_progress(0, 'Generating...')
 
         try:
+            self.progress_tracker.set_progress(10, 'Running SD 1.5 inference...')
             assets = self.gen_service.generate_asset(
-                self.project, prompt, asset_type, profile, quantity
+                self.project, prompt, asset_type, profile, quantity, model_key=model_key,
             )
             self.session.commit()
-            self.progress_bar.setValue(100)
-            self.status_label.setText(f"Generated {len(assets)} asset(s)")
+            self.progress_tracker.set_progress(100, f'Generated {len(assets)} asset(s)')
             logger.info(
                 "Generation succeeded: %d asset(s) created for project='%s'",
                 len(assets), self.project.name
             )
-            self.parent().parent().register_screen(
-                "review",
-                __import__('app.ui.review_screen', fromlist=['ReviewScreen']).ReviewScreen(
-                    self.main_window, self.project
-                )
-            )
+            from app.ui.review_screen import ReviewScreen
+            self.main_window.register_screen("review", ReviewScreen(self.main_window, self.project))
+            self.main_window.navigate_to("review")
         except Exception as e:
             self.status_label.setText(f"Error: {e}")
             logger.exception("Generation failed for project='%s': %s", self.project.name, e)
@@ -163,8 +254,10 @@ class GenerationScreen(QWidget):
 
     def edit_style(self):
         logger.info("Navigating to style editor, project='%s'", self.project.name)
+        profile = self.get_selected_profile()
+        profile_id = profile.style_profile_id if profile else None
         from app.ui.style_editor_screen import StyleEditorScreen
-        self.main_window.register_screen("style_editor", StyleEditorScreen(self.main_window, self.project))
+        self.main_window.register_screen("style_editor", StyleEditorScreen(self.main_window, self.project, edit_profile_id=profile_id))
         self.main_window.navigate_to("style_editor")
 
     def go_review(self):

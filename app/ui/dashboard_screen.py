@@ -17,7 +17,7 @@ class DashboardScreen(QWidget):
         super().__init__()
         self.main_window = main_window
         self.db = main_window.app_instance.get_db()
-        self.session = self.db.get_session()
+        self.session = main_window.app_instance.track_session(self.db.get_session())
         self.repo = ProjectRepo(self.session)
 
         layout = QVBoxLayout(self)
@@ -130,9 +130,14 @@ class DashboardScreen(QWidget):
         project = self.repo.get(project_id)
         if project:
             logger.info("Opened project: id=%s, name='%s'", project_id, project.name)
+            self.project = project
             from app.ui.generation_screen import GenerationScreen
-            if "generation" not in self.main_window.screens:
-                self.main_window.register_screen("generation", GenerationScreen(self.main_window, project))
+            self.main_window.register_screen("generation", GenerationScreen(self.main_window, project))
+            from app.ui.animation_screen import AnimationScreen
+            self.main_window.register_screen("animation", AnimationScreen(self.main_window, project))
+            from app.ui.export_screen import ExportScreen
+            self.main_window.register_screen("export", ExportScreen(self.main_window, project))
+            self.main_window.set_project_nav_enabled(True)
             self.main_window.navigate_to("generation")
 
     def delete_selected_project(self):
@@ -143,7 +148,7 @@ class DashboardScreen(QWidget):
             reply = QMessageBox.question(self, "Confirm Delete", "Delete this project? This cannot be undone.",
                                         QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.Yes:
-                self.repo.delete(pid)
-                self.session.commit()
+                from app.services.project_service import ProjectService
+                ProjectService(self.session).delete_project(pid)
                 logger.info("Deleted project: id=%s, name='%s'", pid, name)
                 self.refresh_list()
